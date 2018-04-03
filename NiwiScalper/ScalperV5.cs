@@ -1,16 +1,11 @@
-﻿
-using System;
+﻿using System;
 using cAlgo.API;
 using cAlgo.API.Indicators;
 using cAlgo.API.Internals;
 
-// EURUSD scalper, aprox 14% rentability for year 2017
-
-
 namespace cAlgo {
   [Robot(TimeZone = TimeZones.WEuropeStandardTime, AccessRights = AccessRights.None)]
   public class Scalper50 : Robot {
-
     private class Timing : Tuple<Int32, Int32> {
       public Int32 Reference { get { return Item1; } }
       public Int32 Local { get { return Item2; } }
@@ -22,187 +17,150 @@ namespace cAlgo {
       }
     }
 
-    //[Parameter("Stop Loss PIPs", DefaultValue = 30)]
-    //public double StopLossPIPS { get; set; }
-
-    //[Parameter("Take Profit PIPS", DefaultValue = 10)]
-    //public double TakeProfitPIPS { get; set; }
-
     [Parameter("Stop Loss ATR's", DefaultValue = 1, Step = 0.5)]
     public double StopLossATRS { get; set; }
 
     [Parameter("Take Profit ATR's", DefaultValue = 1, Step = 0.5)]
     public double TakeProfitATRS { get; set; }
 
-    [Parameter("Minimum ATR", DefaultValue = 4, Step = 1)]
-    public int MinimumAtr { get; set; }
+    [Parameter("Stop Loss PIPs", DefaultValue = 30)]
+    public int StopLossPIPS { get; set; }
+
+    [Parameter("Take Profit PIPS", DefaultValue = 10)]
+    public int TakeProfitPIPS { get; set; }
 
     [Parameter("Risked %", DefaultValue = 1, Step = 0.5)]
     public double Risk { get; set; }
 
-    //[Parameter("Start Hour", DefaultValue = 2)]
-    //public int StartTime { get; set; }
+    [Parameter("Volume", DefaultValue = 10000)]
+    public int Volume { get; set; }
 
-    //[Parameter("Stop Hour", DefaultValue = 22)]
-    //public int StopTime { get; set; }
-
-    private StochasticOscillator sto;
-    private AverageTrueRange atr;
-
-    private ExponentialMovingAverage ema10;
-    private ExponentialMovingAverage ema3;
-
-    //private WeightedMovingAverage lmm150;
-    //private WeightedMovingAverage lmm300;
-    //private WeightedMovingAverage rmm150;
-    //private WeightedMovingAverage rmm300;
+    private ExponentialMovingAverage lmm8;
+    private WeightedMovingAverage lmm100;
+    private WeightedMovingAverage lmm200;
+    private WeightedMovingAverage rmm200;
 
     private MacdCrossOver lmacd;
     private MacdCrossOver rmacd;
 
-    private long losing = 1;
+    private AverageTrueRange atr;
+    private StochasticOscillator sto;
 
-    private Position currentPosition = null;
+    //private Position currentPosition = null;
     private MarketSeries rseries;
 
+    private long BarId;
+    private long LastPositionBarId;
+
     protected override void OnStart() {
+      BarId = MarketSeries.Close.Count;
+      LastPositionBarId = BarId;
+
       var reftf = GetReferenceTimeframe(MarketSeries.TimeFrame);
       rseries = MarketData.GetSeries(MarketSeries.SymbolCode, reftf);
 
-      atr = Indicators.AverageTrueRange(MarketSeries, 14, MovingAverageType.Exponential);
-      sto = Indicators.StochasticOscillator(MarketSeries, 13, 9, 4, MovingAverageType.Simple);
-
-      ema10 = Indicators.ExponentialMovingAverage(MarketSeries.Close, 10);
-      ema3 = Indicators.ExponentialMovingAverage(MarketSeries.Close, 3);
-
-      //lmm150 = Indicators.WeightedMovingAverage(MarketSeries.Close, 150);
-      //lmm300 = Indicators.WeightedMovingAverage(MarketSeries.Close, 300);
-      //rmm150 = Indicators.WeightedMovingAverage(rseries.Close, 150);
-      //rmm300 = Indicators.WeightedMovingAverage(rseries.Close, 300);
+      lmm8 = Indicators.ExponentialMovingAverage(MarketSeries.Close, 8);
+      lmm100 = Indicators.WeightedMovingAverage(MarketSeries.Close, 100);
+      lmm200 = Indicators.WeightedMovingAverage(MarketSeries.Close, 200);
+      rmm200 = Indicators.WeightedMovingAverage(rseries.Close, 200);
 
       lmacd = Indicators.MacdCrossOver(MarketSeries.Close, 26, 12, 9);
       rmacd = Indicators.MacdCrossOver(rseries.Close, 26, 12, 9);
 
-      Positions.Closed += PositionsOnClosed;
+      atr = Indicators.AverageTrueRange(MarketSeries, 14, MovingAverageType.Simple);
+      sto = Indicators.StochasticOscillator(MarketSeries, 13, 3, 3, MovingAverageType.Simple);
+
+      //Positions.Closed += PositionsOnClosed;
     }
 
-    private void PositionsOnClosed(PositionClosedEventArgs obj) {
-      var pos = obj.Position;
-      if (currentPosition != null && currentPosition.Id == pos.Id) {
-        currentPosition = null;
+    //private void PositionsOnClosed(PositionClosedEventArgs obj) {
+    //  var pos = obj.Position;
+    //  if (currentPosition != null && currentPosition.Id == pos.Id) {
+    //    currentPosition = null;
+    //  }
+    //}
 
-        // Handle lossing counter
-        if (pos.GrossProfit < 0) {
-          losing++;
-        } else {
-          losing--;
-          if (losing < 1) losing = 1;
-        }
-      }
-    }
+    //private int GetAtrInPips() {
+    //  // TODO: Determine the pip position from Symbol
+    //  return (int)Math.Round(atr.Result.LastValue * 10000);
+    //}
 
-    private int GetAtrInPips() {
-      // TODO: Determine the pip position from Symbol
-      return (int)Math.Round(atr.Result.LastValue * 10000);
-    }
+    //private int CalculateStopLoss(int atr) {
+    //  return (int)Math.Round(atr * StopLossATRS);
+    //}
 
-    private int CalculateStopLoss(int atr) {
-      return (int)Math.Round(atr * StopLossATRS);
-    }
+    //private int CalculateTakeProfit(int atr) {
+    //  return (int)Math.Round(atr * TakeProfitATRS);
+    //}
 
-    private int CalculateTakeProfit(int atr) {
-      return (int)Math.Round(atr * TakeProfitATRS);
-    }
 
-    protected override void OnBar() {
-      if (currentPosition == null) {
-        //if (!IsOnTraidingTime()) return;
+    protected override void OnTick() {
+      BarId = MarketSeries.Close.Count;
 
-        var signal = GetSignal();
-        var atr = GetAtrInPips();
+      //var atr = GetAtrInPips();
+      //var stopLoss = CalculateStopLoss(atr);
+      //var takeProfit = CalculateTakeProfit(atr);
 
-        var stopLoss = CalculateStopLoss(atr);
-        var takeProfit = CalculateTakeProfit(atr);
-
-        var label = String.Format("scalper,t={0}", CalculateMarketTiming().ToString());
-
-        // Do nothing if atr is too small
-        if (atr < MinimumAtr) return;
+      if (BarId > (LastPositionBarId+2)) {
+        var timing = CalculateMarketTiming();
+        var signal = GetSignal(timing);
+        var label = String.Format("scalper,t={0}", timing.ToString());
 
         if (signal == -1) {
-          var volume = GetVolume(TradeType.Sell, stopLoss);
-          var result = ExecuteMarketOrder(TradeType.Sell, Symbol, volume, label, stopLoss, null, 1);
+          var volume = GetVolume(TradeType.Sell, StopLossPIPS);
+          //var volume = GetVolume(TradeType.Sell, stopLoss);
+          var result = ExecuteMarketOrder(TradeType.Sell, Symbol, volume, label, StopLossPIPS, TakeProfitPIPS, 1);
+          //var result = ExecuteMarketOrder(TradeType.Sell, Symbol, volume, label, stopLoss, takeProfit, 1);
 
           if (result.IsSuccessful) {
-            currentPosition = result.Position;
+            //currentPosition = result.Position;
+            LastPositionBarId = BarId;
           } else {
             Print("Error on open SELL possition.");
           }
         } else if (signal == 1) {
-          var volume = GetVolume(TradeType.Buy, stopLoss);
-          var result = ExecuteMarketOrder(TradeType.Buy, Symbol, volume, label, stopLoss, null, 1);
+          var volume = GetVolume(TradeType.Buy, StopLossPIPS);
+          //var volume = GetVolume(TradeType.Buy, stopLoss);
+          var result = ExecuteMarketOrder(TradeType.Buy, Symbol, volume, label, StopLossPIPS, TakeProfitPIPS, 1);
+          //var result = ExecuteMarketOrder(TradeType.Buy, Symbol, volume, label, stopLoss, takeProfit, 1);
 
           if (result.IsSuccessful) {
-            currentPosition = result.Position;
+            LastPositionBarId = BarId;
+            //currentPosition = result.Position;
           } else {
             Print("Error on open BUY possition.");
           }
         }
       } else {
-        if (currentPosition.TradeType == TradeType.Buy) {
-          if (lmacd.MACD.HasCrossedBelow(lmacd.Signal, 1)) {
-            ClosePosition(currentPosition);
-            currentPosition = null;
-          }
-        } else {
-          if (lmacd.MACD.HasCrossedAbove(lmacd.Signal, 1)) {
-            ClosePosition(currentPosition);
-            currentPosition = null;
-          }
-        }
-
+        // TODO
       }
     }
 
-    public int GetSignal() {
-      var timing = CalculateMarketTiming();
-
+    private int GetSignal(Timing timing) {
       if (timing.Reference == 1
-          && lmacd.MACD.HasCrossedAbove(lmacd.Signal, 0)
-          && lmacd.MACD.LastValue < -0.00025
-          && lmacd.Signal.LastValue < -0.00025) {
+          && lmacd.MACD.HasCrossedAbove(0, 1)
+          && lmacd.Signal.Last(1) < lmacd.MACD.Last(1)
+          && sto.PercentK.Last(1) > 50) {
         return 1;
-      } else if (timing.Reference == -1
-                 && lmacd.MACD.HasCrossedBelow(lmacd.Signal, 0)
-                 && lmacd.MACD.LastValue > 0.00025
-                 && lmacd.Signal.LastValue > 0.00025) {
+      }
+
+      if (timing.Reference == -1 
+          && lmacd.MACD.HasCrossedBelow(0, 1)
+          && lmacd.Signal.Last(1) > lmacd.MACD.Last(1)
+          && sto.PercentK.Last(1) < 50) {
         return -1;
       }
 
       return 0;
     }
 
-
-
-    //protected override void OnTick() {
-    //  if (currentPosition != null) {
-    //    if (currentPosition.Pips >= 9) {
-    //      if (currentPosition.TradeType == TradeType.Buy) {
-    //        ModifyPosition(currentPosition, currentPosition.EntryPrice + (Symbol.PipSize * 5), currentPosition.TakeProfit);
-    //      } else {
-    //        ModifyPosition(currentPosition, currentPosition.EntryPrice - (Symbol.PipSize * 5), currentPosition.TakeProfit);
-    //      }
-    //    }
-    //  }
-    //}
-
-    private long GetVolume(TradeType ttype, int stopLoss) {
-      var riskedAmount = Account.Balance * (Risk / 100);
-      var price = ttype == TradeType.Buy ? Symbol.Ask : Symbol.Bid;
-      var volume = 1 / ((price * Symbol.PipSize * stopLoss) / riskedAmount);
-      return Symbol.NormalizeVolume(Symbol.QuantityToVolume(volume / 100000), RoundingMode.ToNearest);
+    private long GetVolume(TradeType ttype, int stopLossPips) {
+      //var riskedAmount = Account.Balance * (Risk / 100);
+      //var price = ttype == TradeType.Buy ? Symbol.Ask : Symbol.Bid;
+      //var volume = 1 / ((price * Symbol.PipSize * stopLossPips) / riskedAmount);
+      //return Symbol.NormalizeVolume(Symbol.QuantityToVolume(volume / 100000), RoundingMode.ToNearest);
+      return Volume;
     }
-
 
     //private bool IsOnTraidingTime() {
     //  return Server.Time.Hour >= StartTime && Server.Time.Hour <= StopTime;
@@ -213,22 +171,60 @@ namespace cAlgo {
     // -------------------------------------------
 
     private Timing CalculateMarketTiming() {
-      int local = 0;
-      int reference = 0;
-
-      if (lmacd.Histogram.LastValue > 0) {
-        local = 1;
-      } else if (lmacd.Histogram.LastValue < 0) {
-        local = -1;
-      }
-
-      if (rmacd.Histogram.LastValue > 0) {
-        reference = 1;
-      } else if (rmacd.Histogram.LastValue < 0) {
-        reference = -1;
-      }
+      var local = CalculateLocalTiming();
+      var reference = CalculateReferenceTiming();
 
       return new Timing(reference, local);
+    }
+
+    private int CalculateLocalTiming() {
+      var lseries = MarketSeries;
+
+      if (IsTrendUp(lseries, lmm200)) {
+        if (lmacd.Histogram.LastValue > 0 && lmacd.Signal.LastValue > 0) {
+          return 1;
+        } else if (lmacd.Histogram.LastValue > 0 && lmacd.Signal.LastValue < 0) {
+          return 4;
+        } else if (lmacd.Histogram.LastValue <= 0 && lmacd.Signal.LastValue >= 0) {
+          return 2;
+        } else {
+          return 3;
+        }
+      } else {
+        if (lmacd.Histogram.LastValue < 0 && lmacd.Signal.LastValue < 0) {
+          return -1;
+        } else if (lmacd.Histogram.LastValue < 0 && lmacd.Signal.LastValue > 0) {
+          return -4;
+        } else if (lmacd.Histogram.LastValue >= 0 && lmacd.Signal.LastValue <= 0) {
+          return -2;
+        } else {
+          return -3;
+        }
+      }
+    }
+
+    private int CalculateReferenceTiming() {
+      if (IsTrendUp(rseries, rmm200)) {
+        if (rmacd.Histogram.LastValue > 0 && rmacd.Signal.LastValue > 0) {
+          return 1;
+        } else if (rmacd.Histogram.LastValue > 0 && rmacd.Signal.LastValue < 0) {
+          return 4;
+        } else if (rmacd.Histogram.LastValue <= 0 && rmacd.Signal.LastValue >= 0) {
+          return 2;
+        } else {
+          return 3;
+        }
+      } else {
+        if (rmacd.Histogram.LastValue < 0 && rmacd.Signal.LastValue < 0) {
+          return -1;
+        } else if (rmacd.Histogram.LastValue < 0 && rmacd.Signal.LastValue > 0) {
+          return -4;
+        } else if (rmacd.Histogram.LastValue >= 0 && rmacd.Signal.LastValue <= 0) {
+          return -2;
+        } else {
+          return -3;
+        }
+      }
     }
 
     private TimeFrame GetReferenceTimeframe(TimeFrame tf) {
@@ -242,6 +238,17 @@ namespace cAlgo {
         return TimeFrame.Weekly;
       } else {
         return TimeFrame.Hour;
+      }
+    }
+
+    private bool IsTrendUp(MarketSeries series, WeightedMovingAverage wma) {
+      var close = series.Close.LastValue;
+      var value = wma.Result.LastValue;
+
+      if (value < close) {
+        return true;
+      } else {
+        return false;
       }
     }
   }
