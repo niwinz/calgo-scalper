@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using cAlgo.API;
 using cAlgo.API.Indicators;
 using cAlgo.API.Internals;
@@ -23,10 +24,10 @@ namespace cAlgo {
     [Parameter("Take Profit ATR's", DefaultValue = 1, Step = 0.5)]
     public double TakeProfitATRS { get; set; }
 
-    [Parameter("Stop Loss PIPs", DefaultValue = 30)]
+    [Parameter("Stop Loss PIPs", DefaultValue = 60)]
     public int StopLossPIPS { get; set; }
 
-    [Parameter("Take Profit PIPS", DefaultValue = 10)]
+    [Parameter("Take Profit PIPS", DefaultValue = 8)]
     public int TakeProfitPIPS { get; set; }
 
     [Parameter("Risked %", DefaultValue = 1, Step = 0.5)]
@@ -34,6 +35,9 @@ namespace cAlgo {
 
     [Parameter("Volume", DefaultValue = 10000)]
     public int Volume { get; set; }
+
+    [Parameter("Label", DefaultValue = "scalper")]
+    public String Label { get; set; }
 
     private ExponentialMovingAverage lmm8;
     private WeightedMovingAverage lmm100;
@@ -52,7 +56,11 @@ namespace cAlgo {
     private long BarId;
     private long LastPositionBarId;
 
+    private HashSet<Int32> ignorableIds;
+
     protected override void OnStart() {
+      ignorableIds = new HashSet<int>();
+
       BarId = MarketSeries.Close.Count;
       LastPositionBarId = BarId;
 
@@ -70,15 +78,13 @@ namespace cAlgo {
       atr = Indicators.AverageTrueRange(MarketSeries, 14, MovingAverageType.Simple);
       sto = Indicators.StochasticOscillator(MarketSeries, 13, 3, 3, MovingAverageType.Simple);
 
-      //Positions.Closed += PositionsOnClosed;
+      Positions.Closed += PositionsOnClosed;
     }
 
-    //private void PositionsOnClosed(PositionClosedEventArgs obj) {
-    //  var pos = obj.Position;
-    //  if (currentPosition != null && currentPosition.Id == pos.Id) {
-    //    currentPosition = null;
-    //  }
-    //}
+    private void PositionsOnClosed(PositionClosedEventArgs obj) {
+      var pos = obj.Position;
+      ignorableIds.Remove(pos.Id);
+    }
 
     //private int GetAtrInPips() {
     //  // TODO: Determine the pip position from Symbol
@@ -97,43 +103,58 @@ namespace cAlgo {
     protected override void OnTick() {
       BarId = MarketSeries.Close.Count;
 
-      //var atr = GetAtrInPips();
-      //var stopLoss = CalculateStopLoss(atr);
-      //var takeProfit = CalculateTakeProfit(atr);
-
-      if (BarId > (LastPositionBarId+2)) {
+      if (BarId > (LastPositionBarId + 2)) {
         var timing = CalculateMarketTiming();
         var signal = GetSignal(timing);
-        var label = String.Format("scalper,t={0}", timing.ToString());
 
         if (signal == -1) {
           var volume = GetVolume(TradeType.Sell, StopLossPIPS);
-          //var volume = GetVolume(TradeType.Sell, stopLoss);
-          var result = ExecuteMarketOrder(TradeType.Sell, Symbol, volume, label, StopLossPIPS, TakeProfitPIPS, 1);
-          //var result = ExecuteMarketOrder(TradeType.Sell, Symbol, volume, label, stopLoss, takeProfit, 1);
+          var result = ExecuteMarketOrder(TradeType.Sell, Symbol, volume, Label, StopLossPIPS, TakeProfitPIPS, 1);
 
           if (result.IsSuccessful) {
-            //currentPosition = result.Position;
             LastPositionBarId = BarId;
           } else {
             Print("Error on open SELL possition.");
           }
         } else if (signal == 1) {
           var volume = GetVolume(TradeType.Buy, StopLossPIPS);
-          //var volume = GetVolume(TradeType.Buy, stopLoss);
-          var result = ExecuteMarketOrder(TradeType.Buy, Symbol, volume, label, StopLossPIPS, TakeProfitPIPS, 1);
-          //var result = ExecuteMarketOrder(TradeType.Buy, Symbol, volume, label, stopLoss, takeProfit, 1);
+          var result = ExecuteMarketOrder(TradeType.Buy, Symbol, volume, Label, StopLossPIPS, TakeProfitPIPS, 1);
 
           if (result.IsSuccessful) {
             LastPositionBarId = BarId;
-            //currentPosition = result.Position;
           } else {
             Print("Error on open BUY possition.");
           }
         }
-      } else {
-        // TODO
       }
+
+      //var positions = Positions.FindAll(Label);
+      //foreach (var position in positions) {
+      //  if (position.TradeType == TradeType.Buy
+      //      && lmacd.Signal.Last(1) > lmacd.MACD.Last(1)) {
+      //    ClosePosition(position);
+      //  } else if (position.TradeType == TradeType.Sell
+      //             && lmacd.Signal.Last(1) < lmacd.MACD.Last(1)) {
+      //    ClosePosition(position);
+      //  }
+      //}
+
+      //foreach (var position in positions) {
+      //  if (!ignorableIds.Contains(position.Id)) {
+      //    if (position.Pips > (TakeProfitPIPS / 2)) {
+      //      var volumeToClose = Symbol.NormalizeVolume(Volume / 2);
+      //      //ClosePosition(position, volumeToClose);
+      //      if (position.TradeType == TradeType.Buy) {
+      //        ModifyPosition(position, position.EntryPrice - (Symbol.PipSize * (StopLossPIPS / 2)), position.TakeProfit);
+
+      //      } else {
+      //        ModifyPosition(position, position.EntryPrice + (Symbol.PipSize * (StopLossPIPS / 2)), position.TakeProfit);
+      //      }
+      //      //ModifyPosition(position, position.EntryPrice, position.TakeProfit);
+      //      ignorableIds.Add(position.Id);
+      //    }
+      //  }
+      //}
     }
 
     private int GetSignal(Timing timing) {
