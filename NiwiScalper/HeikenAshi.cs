@@ -4,34 +4,16 @@ using cAlgo.API.Indicators;
 
 namespace cAlgo.Indicators {
   [Indicator(TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
-  public class HeikenAshiOscillator : Indicator {
+  public class HeikenAshi : Indicator {
     private IndicatorDataSeries _haOpen;
     private IndicatorDataSeries _haClose;
 
-    [Output("Result Open", Color = Colors.Orange, PlotType = PlotType.Line)]
-    public IndicatorDataSeries ResultOpen { get; set; }
-
-    [Output("Result Close", Color = Colors.Blue, PlotType = PlotType.Line)]
-    public IndicatorDataSeries ResultClose { get; set; }
-
-    [Parameter("Periods", DefaultValue = 2)]
-    public int Periods { get; set; }
+    [Output("Result", Color = Colors.Gray, PlotType = PlotType.Histogram)]
+    public IndicatorDataSeries Result { get; set; }
 
     protected override void Initialize() {
       _haOpen = CreateDataSeries();
       _haClose = CreateDataSeries();
-    }
-
-    public double CalculateMedia(int index, int periods, IndicatorDataSeries source) {
-      if (source.Count < periods) return 0;
-
-      double sum = 0.0;
-
-      for (int i = index - periods + 1; i <= index; i++) {
-        sum += source[i];
-      }
-
-      return sum / periods;
     }
 
     public override void Calculate(int index) {
@@ -50,11 +32,10 @@ namespace cAlgo.Indicators {
       var haHigh = Math.Max(Math.Max(high, haOpen), haClose);
       var haLow = Math.Min(Math.Min(low, haOpen), haClose);
 
+      Result[index] = haOpen > haClose ? -1 : 1;
+
       _haOpen[index] = haOpen;
       _haClose[index] = haClose;
-
-      ResultOpen[index] = CalculateMedia(index, Periods, _haOpen);
-      ResultClose[index] = CalculateMedia(index, Periods, _haClose);
     }
   }
 }
