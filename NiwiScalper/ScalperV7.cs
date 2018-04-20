@@ -6,27 +6,21 @@ using cAlgo.API.Indicators;
 using cAlgo.API.Internals;
 
 
-// Bot that uses MACD for general tendence following and RSI for local
-// entry and exit points. For now show pretty good results with default
-// parameters from 01/09/2017 to 02/04/2018 on AUDUSD AND USDCAD
+// NOTE: the same line of investigation than bot v6
+// TODO:
+// - Check if stochastic oscilator works better than RSI using the same tendency following strategy.
+// - Try using OnTick and OnBar variants
+// - Try replacing the trend following strategy (MACD) with heikin ashi oscilator.
+// - Try impelent fast skip if tendency changes for avoid high loses operations.
+// - Try a strategy for setting up proper stop-loss/take profit for ensure winning operations.
 
 namespace cAlgo {
   [Robot(TimeZone = TimeZones.WEuropeStandardTime, AccessRights = AccessRights.None)]
-  public class Scalper60 : Robot {
-    private class Timing : Tuple<Int32, Int32> {
-      public Int32 Reference { get { return Item1; } }
-      public Int32 Local { get { return Item2; } }
-
-      public Timing(int reference, int local) : base(reference, local) { }
-
-      public override string ToString() {
-        return String.Format("{0}/{1}", Reference, Local);
-      }
-    }
+  public class Scalpe70 : Robot {
     [Parameter("Volume", DefaultValue = 50000)]
     public int Volume { get; set; }
 
-    [Parameter("Label", DefaultValue = "scalperv6")]
+    [Parameter("Label", DefaultValue = "scalperv7")]
     public String Label { get; set; }
 
     private ExponentialMovingAverage lmm50;
@@ -38,6 +32,7 @@ namespace cAlgo {
     private MacdCrossOver rmacd;
 
     private RelativeStrengthIndex rsi;
+    private StochasticOscillator sto;
 
     private MarketSeries rseries;
 
@@ -45,11 +40,10 @@ namespace cAlgo {
     private long LastPositionBarId;
     private Position currentPosition;
 
-
     protected override void OnStart() {
       BarId = MarketSeries.Close.Count;
       LastPositionBarId = BarId;
-
+      
       var reftf = GetReferenceTimeframe(MarketSeries.TimeFrame);
       rseries = MarketData.GetSeries(MarketSeries.SymbolCode, reftf);
 
@@ -62,8 +56,10 @@ namespace cAlgo {
       rmacd = Indicators.MacdCrossOver(rseries.Close, 26, 12, 9);
 
       rsi = Indicators.RelativeStrengthIndex(MarketSeries.Close, 6);
-      Positions.Closed += PositionsOnClosed;
+      sto = Indicators.StochasticOscillator(MarketSeries, 14, 3, 3, MovingAverageType.Simple);
 
+      Positions.Closed += PositionsOnClosed;
+      currentPosition = Positions.Find(Label, Symbol);
     }
 
     private void PositionsOnClosed(PositionClosedEventArgs obj) {
@@ -75,7 +71,7 @@ namespace cAlgo {
 
     protected override void OnTick() {
       BarId = MarketSeries.Close.Count;
-      var timing = CalculateMarketTiming();
+      var timing = CalculateReferenceTiming();
 
       if (currentPosition == null) {
         if (LastPositionBarId == BarId) return;
@@ -85,7 +81,6 @@ namespace cAlgo {
         if (signal == -1) {
           var volume = GetVolume(TradeType.Sell);
           var result = ExecuteMarketOrder(TradeType.Sell, Symbol, volume, Label, null, null, 1);
-
           if (result.IsSuccessful) {
             currentPosition = result.Position;
             LastPositionBarId = BarId;
@@ -95,7 +90,6 @@ namespace cAlgo {
         } else if (signal == 1) {
           var volume = GetVolume(TradeType.Buy);
           var result = ExecuteMarketOrder(TradeType.Buy, Symbol, volume, Label, null, null, 1);
-
           if (result.IsSuccessful) {
             currentPosition = result.Position;
             LastPositionBarId = BarId;
@@ -105,31 +99,64 @@ namespace cAlgo {
         }
       } else {
         var position = currentPosition;
-        if (position.TradeType == TradeType.Buy && rsi.Result.LastValue >= 70) {
-          ClosePosition(position);
-        } else if (position.TradeType == TradeType.Sell && rsi.Result.LastValue <= 30) {
-          ClosePosition(position);
+        if (position.TradeType == TradeType.Buy) {
+          // Close position when we have arrived to the target.
+          if (sto.PercentK.LastValue >= 80) {
+            ClosePosition(position);
+            currentPosition = null;
+            return;
+          }
+
+          // Close possition if market direction is changed.
+          if (lmm50.Result.HasCrossedBelow(lmm100.Result, 2)
+              && lmm50.Result.Last(1) < lmm100.Result.Last(1)) {
+            ClosePosition(position);
+            currentPosition = null;
+            return;
+          }
+        } else {
+          // Close position when we have arrived to the target.
+          if (sto.PercentK.LastValue <= 20) {
+            ClosePosition(position);
+            currentPosition = null;
+            return;
+          }
+
+          // Close possition if market direction is changed.
+          if (lmm50.Result.HasCrossedAbove(lmm100.Result, 2)
+              && lmm50.Result.Last(1) > lmm100.Result.Last(1)) {
+            ClosePosition(position);
+            currentPosition = null;
+            return;
+          }
         }
       }
     }
 
-    private int GetSignal(Timing timing) {
+    private int GetSignal(Int32 timing) {
       var buyTimings = new int[] { 1, 4, -2, -3 };
       var sellTimings = new int[] { -1, -4, 2, 3 };
 
-
-      if (buyTimings.Contains(timing.Reference)
-          && rsi.Result.Last(2) <= 30
-          && rsi.Result.Last(1) >= 30
-          && rsi.Result.Last(1) < 40
+      if (buyTimings.Contains(timing)
+          && sto.PercentK.HasCrossedAbove(sto.PercentD, 2)
+          && sto.PercentK.Last(2) <= 20
+          && sto.PercentD.Last(2) <= 20
+          && sto.PercentK.Last(1) <= 20
+          && sto.PercentD.Last(1) <= 20
+          && sto.PercentK.Last(1) > sto.PercentD.Last(1)
+          && sto.PercentK.LastValue > sto.PercentD.LastValue
           && lmm50.Result.LastValue > lmm100.Result.LastValue) {
         return 1;
       }
 
-      if (sellTimings.Contains(timing.Reference)
-          && rsi.Result.Last(2) >= 70
-          && rsi.Result.Last(1) <= 70
-          && rsi.Result.Last(1) > 60
+      if (sellTimings.Contains(timing)
+          && sto.PercentK.HasCrossedBelow(sto.PercentD, 2)
+          && sto.PercentK.Last(2) >= 80
+          && sto.PercentD.Last(2) >= 80
+          && sto.PercentK.Last(1) >= 80
+          && sto.PercentD.Last(1) >= 80
+          && sto.PercentK.Last(1) < sto.PercentD.Last(1)
+          && sto.PercentK.LastValue < sto.PercentD.LastValue
           && lmm50.Result.LastValue < lmm100.Result.LastValue) {
         return -1;
       }
@@ -141,43 +168,10 @@ namespace cAlgo {
       return Volume;
     }
 
-   
+
     // -------------------------------------------
     // ----  Market Timing
     // -------------------------------------------
-
-    private Timing CalculateMarketTiming() {
-      var local = CalculateLocalTiming();
-      var reference = CalculateReferenceTiming();
-
-      return new Timing(reference, local);
-    }
-
-    private int CalculateLocalTiming() {
-      var lseries = MarketSeries;
-
-      if (IsTrendUp(lseries, lmm200)) {
-        if (lmacd.Histogram.LastValue > 0 && lmacd.Signal.LastValue > 0) {
-          return 1;
-        } else if (lmacd.Histogram.LastValue > 0 && lmacd.Signal.LastValue < 0) {
-          return 4;
-        } else if (lmacd.Histogram.LastValue <= 0 && lmacd.Signal.LastValue >= 0) {
-          return 2;
-        } else {
-          return 3;
-        }
-      } else {
-        if (lmacd.Histogram.LastValue < 0 && lmacd.Signal.LastValue < 0) {
-          return -1;
-        } else if (lmacd.Histogram.LastValue < 0 && lmacd.Signal.LastValue > 0) {
-          return -4;
-        } else if (lmacd.Histogram.LastValue >= 0 && lmacd.Signal.LastValue <= 0) {
-          return -2;
-        } else {
-          return -3;
-        }
-      }
-    }
 
     private int CalculateReferenceTiming() {
       if (IsTrendUp(rseries, rmm200)) {
@@ -212,6 +206,8 @@ namespace cAlgo {
         return TimeFrame.Weekly;
       } else if (tf == TimeFrame.Weekly) {
         return TimeFrame.Weekly;
+      } else if (tf == TimeFrame.Minute15) {
+        return TimeFrame.Daily;
       } else {
         return TimeFrame.Hour;
       }
