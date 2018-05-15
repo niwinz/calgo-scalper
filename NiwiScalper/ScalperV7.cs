@@ -6,13 +6,11 @@ using cAlgo.API.Indicators;
 using cAlgo.API.Internals;
 
 
-// NOTE: the same line of investigation than bot v6
-// TODO:
-// - Check if stochastic oscilator works better than RSI using the same tendency following strategy.
-// - Try using OnTick and OnBar variants
-// - Try replacing the trend following strategy (MACD) with heikin ashi oscilator.
-// - Try impelent fast skip if tendency changes for avoid high loses operations.
-// - Try a strategy for setting up proper stop-loss/take profit for ensure winning operations.
+
+// Bot that uses MACD for general tendence following and Sochastic for local
+// entry and exit points. For now show pretty good results with default
+// parameters from 01/09/2017 to 02/04/2018 on AUDUSD AND USDCAD
+
 
 namespace cAlgo {
   [Robot(TimeZone = TimeZones.WEuropeStandardTime, AccessRights = AccessRights.None)]
@@ -23,7 +21,7 @@ namespace cAlgo {
     [Parameter("Label", DefaultValue = "scalperv7")]
     public String Label { get; set; }
 
-    private ExponentialMovingAverage lmm50;
+    private WeightedMovingAverage lmm50;
     private WeightedMovingAverage lmm100;
     private WeightedMovingAverage lmm200;
     private WeightedMovingAverage rmm200;
@@ -47,7 +45,7 @@ namespace cAlgo {
       var reftf = GetReferenceTimeframe(MarketSeries.TimeFrame);
       rseries = MarketData.GetSeries(MarketSeries.SymbolCode, reftf);
 
-      lmm50 = Indicators.ExponentialMovingAverage(MarketSeries.Close, 50);
+      lmm50 = Indicators.WeightedMovingAverage(MarketSeries.Close, 50);
       lmm100 = Indicators.WeightedMovingAverage(MarketSeries.Close, 100);
       lmm200 = Indicators.WeightedMovingAverage(MarketSeries.Close, 200);
       rmm200 = Indicators.WeightedMovingAverage(rseries.Close, 200);
